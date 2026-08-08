@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { nanoid } from "nanoid";
 import { requireSession } from "./auth";
 import {
   createAnnotatedPlaylist,
@@ -14,10 +13,7 @@ import {
   updatePlaylistDescription,
   updatePlaylistTitle,
 } from "./store";
-import {
-  averageFeatures,
-  averageTrackFeatures,
-} from "./audio-features";
+import { averageFeatures } from "./audio-features";
 import {
   addTracksToPlaylist,
   createPlaylist,
@@ -26,24 +22,9 @@ import {
   removeTracksFromPlaylist,
   searchTracks,
 } from "./spotify";
-import {
-  isDemoToken,
-  mockAddTracks,
-  mockCreatePlaylist,
-  mockGetPlaylistImageUrl,
-  mockGetPlaylistItems,
-  mockListPlaylists,
-  mockRemoveTracks,
-  mockSearchTracks,
-} from "./mock-spotify";
 import { syncPlaylistFromSpotify } from "./sync";
 import { nextUniqueTitle } from "./titles";
-import type {
-  AnnotatedPlaylist,
-  PlaylistEditSaveInput,
-  SpotifyTrack,
-  TrackNote,
-} from "./types";
+import type { AnnotatedPlaylist, PlaylistEditSaveInput } from "./types";
 
 async function accessToken() {
   const session = await requireSession();
@@ -75,14 +56,6 @@ async function withAudioStats(
     });
   }
 
-  if (isDemoToken(token)) {
-    return savePlaylist({
-      ...playlist,
-      audioStats: averageTrackFeatures(ids),
-      audioStatsUnavailable: false,
-    });
-  }
-
   try {
     const features = await getTracksAudioFeatures(token, ids);
     if (features.length === 0) {
@@ -106,65 +79,6 @@ async function withAudioStats(
   }
 }
 
-async function syncWithMock(playlistId: string): Promise<AnnotatedPlaylist> {
-  const playlist = await getPlaylistById(playlistId);
-  if (!playlist) throw new Error("Playlist not found");
-
-  const tracks = await mockGetPlaylistItems(playlist.spotifyPlaylistId);
-  const byId = new Map(playlist.notes.map((n) => [n.spotifyTrackId, n]));
-  const seen = new Set<string>();
-  const notes: TrackNote[] = tracks.map((track, index) => {
-    seen.add(track.id);
-    const existing = byId.get(track.id);
-    return {
-      id: existing?.id ?? nanoid(),
-      annotatedPlaylistId: playlist.id,
-      spotifyTrackId: track.id,
-      trackName: track.name,
-      artistNames: track.artists,
-      albumName: track.albumName,
-      albumImageUrl: track.albumImageUrl,
-      durationMs: track.durationMs,
-      position: index,
-      note: existing?.note ?? "",
-      status: "active",
-      updatedAt: new Date().toISOString(),
-    };
-  });
-
-  for (const note of playlist.notes) {
-    if (!seen.has(note.spotifyTrackId)) {
-      notes.push({
-        ...note,
-        status: "removed_from_spotify",
-        position: notes.length,
-        updatedAt: new Date().toISOString(),
-      });
-    }
-  }
-
-  const playlistImageUrl = await mockGetPlaylistImageUrl(
-    playlist.spotifyPlaylistId,
-  );
-
-  return savePlaylist({
-    ...playlist,
-    notes,
-    lastSyncedAt: new Date().toISOString(),
-    coverImageUrl: playlistImageUrl ?? playlist.coverImageUrl,
-  });
-}
-
-async function syncOne(
-  playlist: AnnotatedPlaylist,
-  token: string,
-): Promise<AnnotatedPlaylist> {
-  if (isDemoToken(token)) {
-    return syncWithMock(playlist.id);
-  }
-  return syncPlaylistFromSpotify(playlist, token);
-}
-
 export async function getMyAnnotatedPlaylists() {
   const session = await requireSession();
   return listPlaylistsByUser(session.user.id);
@@ -172,7 +86,6 @@ export async function getMyAnnotatedPlaylists() {
 
 export async function getSpotifyPlaylistsAction() {
   const { token } = await accessToken();
-  if (isDemoToken(token)) return mockListPlaylists();
   return listUserPlaylists(token);
 }
 
@@ -181,9 +94,7 @@ export async function importSpotifyPlaylistAction(
   title?: string,
 ) {
   const { session, token } = await accessToken();
-  const playlists = isDemoToken(token)
-    ? await mockListPlaylists()
-    : await listUserPlaylists(token);
+  const playlists = await listUserPlaylists(token);
   const source = playlists.find((p) => p.id === spotifyPlaylistId);
   if (!source) throw new Error("Spotify playlist not found");
 
@@ -201,7 +112,7 @@ export async function importSpotifyPlaylistAction(
     coverImageUrl: source.imageUrl,
   });
 
-  const synced = await syncOne(created, token);
+  const synced = await syncPlaylistFromSpotify(created, token);
   revalidatePath("/dashboard");
   redirect(`/playlists/${synced.id}`);
 }
@@ -213,7 +124,7 @@ export async function syncPlaylistAction(playlistId: string) {
     throw new Error("Not found or unauthorized");
   }
 
-  const synced = await syncOne(playlist, token);
+  const synced = await syncPlaylistFromSpotify(playlist, token);
 
   const siblings = await listSiblingPlaylists(
     session.user.id,
@@ -221,7 +132,7 @@ export async function syncPlaylistAction(playlistId: string) {
   );
   for (const sibling of siblings) {
     if (sibling.id === playlistId) continue;
-    await syncOne(sibling, token);
+    await syncPlaylistFromSpotify(sibling, token);
   }
 
   revalidatePath(`/playlists/${playlistId}`);
@@ -234,9 +145,7 @@ export async function createSpotifyPlaylistAction(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   if (!name) throw new Error("Playlist name is required");
 
-  const created = isDemoToken(token)
-    ? await mockCreatePlaylist(name)
-    : await createPlaylist(token, name);
+  const created = await createPlaylist(token, name);
 
   const existing = await listPlaylistsByUser(session.user.id);
   const uniqueTitle = nextUniqueTitle(
@@ -297,13 +206,12 @@ export async function updatePlaylistDescriptionAction(
 
 export async function searchTracksAction(query: string) {
   const { token } = await accessToken();
-  if (isDemoToken(token)) return mockSearchTracks(query);
   return searchTracks(token, query);
 }
 
 /**
  * Commits draft edits: mutates Spotify (add/remove), then persists notes
- * via the store layer (JSON today; swap to Postgres/Supabase later).
+ * via the Prisma/Postgres store layer.
  */
 export async function savePlaylistEditsAction(input: PlaylistEditSaveInput) {
   const { session, token } = await accessToken();
@@ -316,27 +224,19 @@ export async function savePlaylistEditsAction(input: PlaylistEditSaveInput) {
   const removeIds = [...new Set(input.removeSpotifyTrackIds ?? [])];
 
   if (addTracks.length > 0) {
-    if (isDemoToken(token)) {
-      await mockAddTracks(playlist.spotifyPlaylistId, addTracks);
-    } else {
-      await addTracksToPlaylist(
-        token,
-        playlist.spotifyPlaylistId,
-        addTracks.map((t) => t.uri),
-      );
-    }
+    await addTracksToPlaylist(
+      token,
+      playlist.spotifyPlaylistId,
+      addTracks.map((t) => t.uri),
+    );
   }
 
   if (removeIds.length > 0) {
-    if (isDemoToken(token)) {
-      await mockRemoveTracks(playlist.spotifyPlaylistId, removeIds);
-    } else {
-      await removeTracksFromPlaylist(
-        token,
-        playlist.spotifyPlaylistId,
-        removeIds.map((id) => `spotify:track:${id}`),
-      );
-    }
+    await removeTracksFromPlaylist(
+      token,
+      playlist.spotifyPlaylistId,
+      removeIds.map((id) => `spotify:track:${id}`),
+    );
   }
 
   const saved = await replacePlaylistNotes(
@@ -353,7 +253,7 @@ export async function savePlaylistEditsAction(input: PlaylistEditSaveInput) {
     );
     for (const sibling of siblings) {
       if (sibling.id === playlist.id) continue;
-      await syncOne(sibling, token);
+      await syncPlaylistFromSpotify(sibling, token);
     }
   }
 
@@ -373,7 +273,7 @@ export async function loadOwnerPlaylist(playlistId: string) {
   }
 
   try {
-    const synced = await syncOne(playlist, token);
+    const synced = await syncPlaylistFromSpotify(playlist, token);
     return await withAudioStats(synced, token);
   } catch {
     try {

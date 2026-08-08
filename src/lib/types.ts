@@ -35,10 +35,6 @@ export type AnnotatedPlaylist = {
   audioStatsUnavailable: boolean;
 };
 
-export type DataStore = {
-  playlists: AnnotatedPlaylist[];
-};
-
 export type SpotifyPlaylistSummary = {
   id: string;
   name: string;

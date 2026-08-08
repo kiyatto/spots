@@ -1,0 +1,45 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model AnnotatedPlaylist {
+  id                    String      @id
+  userId                String
+  spotifyPlaylistId     String
+  title                 String
+  description           String      @default("")
+  creatorName           String
+  shareSlug             String      @unique
+  coverImageUrl         String?
+  lastSyncedAt          DateTime?
+  createdAt             DateTime    @default(now())
+  audioStats            Json?
+  audioStatsUnavailable Boolean     @default(false)
+  notes                 TrackNote[]
+
+  @@index([userId])
+  @@index([userId, spotifyPlaylistId])
+}
+
+model TrackNote {
+  id                  String            @id
+  annotatedPlaylistId String
+  spotifyTrackId      String
+  trackName           String
+  artistNames         String
+  albumName           String
+  albumImageUrl       String?
+  durationMs          Int
+  position            Int
+  note                String            @default("")
+  status              String
+  updatedAt           DateTime          @updatedAt
+  playlist            AnnotatedPlaylist @relation(fields: [annotatedPlaylistId], references: [id], onDelete: Cascade)
+
+  @@index([annotatedPlaylistId])
+}

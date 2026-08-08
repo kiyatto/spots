@@ -15,8 +15,8 @@ export default async function NewPlaylistPage() {
           create playlist
         </h1>
         <p className="font-mono text-sm text-white/50">
-          this creates a real playlist on Spotify (or a mock playlist in demo
-          mode). you can search and add songs from the editor afterward.
+          this creates a real playlist on Spotify. you can search and add songs
+          from the editor afterward.
         </p>
         <form action={createSpotifyPlaylistAction} className="flex flex-col gap-4">
           <label className="flex flex-col gap-2 font-mono text-sm text-white/70">

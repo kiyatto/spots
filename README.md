@@ -2,42 +2,44 @@
 
 Annotate Spotify playlists, keep multiple note variants per playlist, and share read-only links.
 
-
 ## Stack
 
 - Next.js (App Router) + TypeScript + Tailwind
-- Auth.js (Spotify OAuth; optional demo mode)
-- Temporary storage: `data/store.json` (Supabase planned, not wired yet)
+- Auth.js (Spotify OAuth)
+- Supabase Postgres via Prisma
 
 ## Setup
 
+1. Link the Vercel project and pull env vars (includes Supabase Postgres URLs):
+
 ```bash
-cp .env.example .env.local
+npx vercel link
+npx vercel env pull .env.local --yes
+```
+
+2. Ensure Spotify credentials are in `.env.local` (`AUTH_SECRET`, `AUTH_URL`, `AUTH_SPOTIFY_ID`, `AUTH_SPOTIFY_SECRET`).
+
+3. Install, push schema, run:
+
+```bash
 npm install
+npm run db:push
 npm run dev
 ```
 
-### Demo mode (no Spotify app)
+Open [http://127.0.0.1:3000](http://127.0.0.1:3000) and log in with Spotify.
 
-In `.env.local`:
-
-```bash
-AUTH_SECRET=any-long-random-string
-AUTH_URL=http://localhost:3000
-SPOTS_DEMO_MODE=true
-```
-
-Open [http://localhost:3000](http://localhost:3000) and use **continue in demo mode**.
-
-### Spotify login
+### Spotify app
 
 1. Create an app in the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
-2. Add redirect URI: `http://localhost:3000/api/auth/callback/spotify`
+2. Add redirect URI: `http://127.0.0.1:3000/api/auth/callback/spotify`
 3. Set `AUTH_SPOTIFY_ID` and `AUTH_SPOTIFY_SECRET` in `.env.local`
-4. Note: Development mode only allows allowlisted users
+4. Development mode only allows allowlisted users
 
 ## Scripts
 
 - `npm run dev` — local server
 - `npm run build` — production build
 - `npm run lint` — ESLint
+- `npm run db:push` — sync Prisma schema to Postgres
+- `npm run db:generate` — regenerate Prisma Client

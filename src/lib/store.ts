@@ -1,74 +1,94 @@
-import { promises as fs } from "fs";
-import path from "path";
 import { nanoid } from "nanoid";
+import type { PlaylistAudioStats } from "./audio-features";
+import { getDb } from "./db";
 import type {
   AnnotatedPlaylist,
-  DataStore,
   TrackNote,
   TrackNoteStatus,
 } from "./types";
+import {
+  Prisma,
+  type AnnotatedPlaylist as DbPlaylist,
+  type TrackNote as DbNote,
+} from "@/generated/prisma/client";
 
+type PlaylistRow = DbPlaylist & { notes: DbNote[] };
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const STORE_PATH = path.join(DATA_DIR, "store.json");
-
-const emptyStore = (): DataStore => ({ playlists: [] });
-
-async function ensureStore(): Promise<void> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  try {
-    await fs.access(STORE_PATH);
-  } catch {
-    await fs.writeFile(STORE_PATH, JSON.stringify(emptyStore(), null, 2));
-  }
+function toIso(value: Date | null): string | null {
+  return value ? value.toISOString() : null;
 }
 
-async function readStore(): Promise<DataStore> {
-  await ensureStore();
-  const raw = await fs.readFile(STORE_PATH, "utf8");
-  try {
-    const store = JSON.parse(raw) as DataStore;
-    store.playlists = (store.playlists ?? []).map((p) => ({
-      ...p,
-      description: p.description ?? "",
-      creatorName:
-        p.creatorName ??
-        (p.userId === "demo-user" ? "Demo" : "spots user"),
-      audioStats: p.audioStats ?? null,
-      audioStatsUnavailable: p.audioStatsUnavailable ?? false,
-    }));
-    return store;
-  } catch {
-    return emptyStore();
-  }
+function mapNote(note: DbNote): TrackNote {
+  return {
+    id: note.id,
+    annotatedPlaylistId: note.annotatedPlaylistId,
+    spotifyTrackId: note.spotifyTrackId,
+    trackName: note.trackName,
+    artistNames: note.artistNames,
+    albumName: note.albumName,
+    albumImageUrl: note.albumImageUrl,
+    durationMs: note.durationMs,
+    position: note.position,
+    note: note.note,
+    status: note.status as TrackNoteStatus,
+    updatedAt: note.updatedAt.toISOString(),
+  };
 }
 
-async function writeStore(store: DataStore): Promise<void> {
-  await ensureStore();
-  await fs.writeFile(STORE_PATH, JSON.stringify(store, null, 2));
+function mapPlaylist(row: PlaylistRow): AnnotatedPlaylist {
+  return {
+    id: row.id,
+    userId: row.userId,
+    spotifyPlaylistId: row.spotifyPlaylistId,
+    title: row.title,
+    description: row.description,
+    creatorName: row.creatorName,
+    shareSlug: row.shareSlug,
+    coverImageUrl: row.coverImageUrl,
+    lastSyncedAt: toIso(row.lastSyncedAt),
+    createdAt: row.createdAt.toISOString(),
+    audioStats: (row.audioStats as PlaylistAudioStats | null) ?? null,
+    audioStatsUnavailable: row.audioStatsUnavailable,
+    notes: [...row.notes]
+      .sort((a, b) => a.position - b.position)
+      .map(mapNote),
+  };
 }
+
+const withNotes = { notes: true } as const;
 
 export async function listPlaylistsByUser(
   userId: string,
 ): Promise<AnnotatedPlaylist[]> {
-  const store = await readStore();
-  return store.playlists
-    .filter((p) => p.userId === userId)
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const db = getDb();
+  const rows = await db.annotatedPlaylist.findMany({
+    where: { userId },
+    include: withNotes,
+    orderBy: { createdAt: "desc" },
+  });
+  return rows.map(mapPlaylist);
 }
 
 export async function getPlaylistById(
   id: string,
 ): Promise<AnnotatedPlaylist | null> {
-  const store = await readStore();
-  return store.playlists.find((p) => p.id === id) ?? null;
+  const db = getDb();
+  const row = await db.annotatedPlaylist.findUnique({
+    where: { id },
+    include: withNotes,
+  });
+  return row ? mapPlaylist(row) : null;
 }
 
 export async function getPlaylistBySlug(
   slug: string,
 ): Promise<AnnotatedPlaylist | null> {
-  const store = await readStore();
-  return store.playlists.find((p) => p.shareSlug === slug) ?? null;
+  const db = getDb();
+  const row = await db.annotatedPlaylist.findUnique({
+    where: { shareSlug: slug },
+    include: withNotes,
+  });
+  return row ? mapPlaylist(row) : null;
 }
 
 export async function createAnnotatedPlaylist(input: {
@@ -82,48 +102,95 @@ export async function createAnnotatedPlaylist(input: {
     "id" | "annotatedPlaylistId" | "updatedAt"
   >[];
 }): Promise<AnnotatedPlaylist> {
-  const store = await readStore();
+  const db = getDb();
   const id = nanoid();
-  const now = new Date().toISOString();
-  const playlist: AnnotatedPlaylist = {
-    id,
-    userId: input.userId,
-    spotifyPlaylistId: input.spotifyPlaylistId,
-    title: input.title,
-    description: "",
-    creatorName:
-      input.creatorName?.trim() ||
-      (input.userId === "demo-user" ? "Demo" : "spots user"),
-    shareSlug: nanoid(12),
-    coverImageUrl: input.coverImageUrl ?? null,
-    lastSyncedAt: null,
-    createdAt: now,
-    audioStats: null,
-    audioStatsUnavailable: false,
-    notes: (input.notes ?? []).map((note, index) => ({
-      ...note,
-      id: nanoid(),
-      annotatedPlaylistId: id,
-      position: note.position ?? index,
-      updatedAt: now,
-    })),
-  };
-  store.playlists.push(playlist);
-  await writeStore(store);
-  return playlist;
+  const now = new Date();
+
+  const row = await db.annotatedPlaylist.create({
+    data: {
+      id,
+      userId: input.userId,
+      spotifyPlaylistId: input.spotifyPlaylistId,
+      title: input.title,
+      description: "",
+      creatorName: input.creatorName?.trim() || "spots user",
+      shareSlug: nanoid(12),
+      coverImageUrl: input.coverImageUrl ?? null,
+      lastSyncedAt: null,
+      createdAt: now,
+      audioStats: Prisma.DbNull,
+      audioStatsUnavailable: false,
+      notes: {
+        create: (input.notes ?? []).map((note, index) => ({
+          id: nanoid(),
+          spotifyTrackId: note.spotifyTrackId,
+          trackName: note.trackName,
+          artistNames: note.artistNames,
+          albumName: note.albumName,
+          albumImageUrl: note.albumImageUrl,
+          durationMs: note.durationMs,
+          position: note.position ?? index,
+          note: note.note,
+          status: note.status,
+          updatedAt: now,
+        })),
+      },
+    },
+    include: withNotes,
+  });
+
+  return mapPlaylist(row);
 }
 
 export async function savePlaylist(
   playlist: AnnotatedPlaylist,
 ): Promise<AnnotatedPlaylist> {
-  const store = await readStore();
-  const index = store.playlists.findIndex((p) => p.id === playlist.id);
-  if (index === -1) {
-    throw new Error("Playlist not found");
-  }
-  store.playlists[index] = playlist;
-  await writeStore(store);
-  return playlist;
+  const db = getDb();
+
+  const row = await db.$transaction(async (tx) => {
+    await tx.trackNote.deleteMany({
+      where: { annotatedPlaylistId: playlist.id },
+    });
+
+    return tx.annotatedPlaylist.update({
+      where: { id: playlist.id },
+      data: {
+        userId: playlist.userId,
+        spotifyPlaylistId: playlist.spotifyPlaylistId,
+        title: playlist.title,
+        description: playlist.description,
+        creatorName: playlist.creatorName,
+        shareSlug: playlist.shareSlug,
+        coverImageUrl: playlist.coverImageUrl,
+        lastSyncedAt: playlist.lastSyncedAt
+          ? new Date(playlist.lastSyncedAt)
+          : null,
+        audioStats:
+          playlist.audioStats === null
+            ? Prisma.DbNull
+            : (playlist.audioStats as Prisma.InputJsonValue),
+        audioStatsUnavailable: playlist.audioStatsUnavailable,
+        notes: {
+          create: playlist.notes.map((note) => ({
+            id: note.id,
+            spotifyTrackId: note.spotifyTrackId,
+            trackName: note.trackName,
+            artistNames: note.artistNames,
+            albumName: note.albumName,
+            albumImageUrl: note.albumImageUrl,
+            durationMs: note.durationMs,
+            position: note.position,
+            note: note.note,
+            status: note.status,
+            updatedAt: new Date(note.updatedAt),
+          })),
+        },
+      },
+      include: withNotes,
+    });
+  });
+
+  return mapPlaylist(row);
 }
 
 export async function updatePlaylistTitle(
@@ -201,8 +268,10 @@ export async function listSiblingPlaylists(
   userId: string,
   spotifyPlaylistId: string,
 ): Promise<AnnotatedPlaylist[]> {
-  const store = await readStore();
-  return store.playlists.filter(
-    (p) => p.userId === userId && p.spotifyPlaylistId === spotifyPlaylistId,
-  );
+  const db = getDb();
+  const rows = await db.annotatedPlaylist.findMany({
+    where: { userId, spotifyPlaylistId },
+    include: withNotes,
+  });
+  return rows.map(mapPlaylist);
 }

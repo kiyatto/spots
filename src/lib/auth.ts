@@ -1,7 +1,6 @@
 import NextAuth, { type NextAuthConfig } from "next-auth";
 import { Auth } from "@auth/core";
 import Spotify from "next-auth/providers/spotify";
-import Credentials from "next-auth/providers/credentials";
 import type { NextRequest } from "next/server";
 import { refreshAccessToken } from "./spotify";
 
@@ -12,8 +11,6 @@ const SPOTIFY_SCOPES = [
   "playlist-modify-public",
   "playlist-modify-private",
 ].join(" ");
-
-const demoMode = process.env.SPOTS_DEMO_MODE === "true";
 
 declare module "next-auth" {
   interface Session {
@@ -36,7 +33,6 @@ declare module "@auth/core/jwt" {
     expiresAt?: number;
     spotifyId?: string;
     error?: string;
-    isDemo?: boolean;
   }
 }
 
@@ -58,41 +54,13 @@ export const authConfig = {
           }),
         ]
       : []),
-    ...(demoMode
-      ? [
-          Credentials({
-            id: "demo",
-            name: "Demo",
-            credentials: {
-              // Auth.js expects a credentials shape; value is unused
-              intent: { label: "intent", type: "text" },
-            },
-            async authorize() {
-              return {
-                id: "demo-user",
-                name: "Demo",
-                email: "demo@spots.local",
-                image: "/assets/mascot.png",
-              };
-            },
-          }),
-        ]
-      : []),
   ],
   session: { strategy: "jwt" },
   pages: {
     signIn: "/",
   },
   callbacks: {
-    async jwt({ token, account, user }) {
-      if (account?.provider === "demo" || user?.id === "demo-user") {
-        token.isDemo = true;
-        token.spotifyId = "demo-spotify";
-        token.accessToken = "demo-token";
-        token.expiresAt = Math.floor(Date.now() / 1000) + 60 * 60 * 24;
-        return token;
-      }
-
+    async jwt({ token, account }) {
       if (account) {
         token.accessToken = account.access_token;
         token.refreshToken = account.refresh_token;
@@ -101,8 +69,6 @@ export const authConfig = {
         token.error = undefined;
         return token;
       }
-
-      if (token.isDemo) return token;
 
       if (
         token.expiresAt &&
