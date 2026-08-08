@@ -11,6 +11,7 @@ import {
   listSiblingPlaylists,
   replacePlaylistNotes,
   savePlaylist,
+  updatePlaylistDescription,
   updatePlaylistTitle,
 } from "./store";
 import {
@@ -136,6 +137,7 @@ export async function importSpotifyPlaylistAction(
     userId: session.user.id,
     spotifyPlaylistId: source.id,
     title: uniqueTitle,
+    creatorName: session.user.name,
     coverImageUrl: source.imageUrl,
   });
 
@@ -186,6 +188,7 @@ export async function createSpotifyPlaylistAction(formData: FormData) {
     userId: session.user.id,
     spotifyPlaylistId: created.id,
     title: uniqueTitle,
+    creatorName: session.user.name,
     coverImageUrl: created.images?.[0]?.url ?? "/assets/mascot.png",
   });
 
@@ -211,6 +214,25 @@ export async function renamePlaylistAction(playlistId: string, title: string) {
   revalidatePath(`/playlists/${playlistId}`);
   revalidatePath("/dashboard");
   return uniqueTitle;
+}
+
+export async function updatePlaylistDescriptionAction(
+  playlistId: string,
+  description: string,
+) {
+  const session = await requireSession();
+  const playlist = await getPlaylistById(playlistId);
+  if (!playlist || playlist.userId !== session.user.id) {
+    throw new Error("Not found or unauthorized");
+  }
+
+  const next = description.trim();
+  await updatePlaylistDescription(playlistId, session.user.id, next);
+  revalidatePath(`/playlists/${playlistId}`);
+  if (playlist.shareSlug) {
+    revalidatePath(`/p/${playlist.shareSlug}`);
+  }
+  return next;
 }
 
 export async function searchTracksAction(query: string) {

@@ -20,6 +20,8 @@ export type AnnotatedPlaylist = {
   userId: string;
   spotifyPlaylistId: string;
   title: string;
+  description: string;
+  creatorName: string;
   shareSlug: string;
   coverImageUrl: string | null;
   lastSyncedAt: string | null;

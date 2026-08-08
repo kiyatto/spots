@@ -1,5 +1,4 @@
 import { notFound } from "next/navigation";
-import { BrandMark } from "@/components/brand-mark";
 import { PlaylistEditor } from "@/components/playlist-editor";
 import { getPlaylistBySlug } from "@/lib/store";
 
@@ -13,8 +12,7 @@ export default async function SharePage({
   if (!playlist) notFound();
 
   return (
-    <main className="flex min-h-screen flex-col gap-10 p-10">
-      <BrandMark href="/" />
+    <main className="flex min-h-screen flex-col p-10">
       <PlaylistEditor playlist={playlist} editable={false} />
     </main>
   );

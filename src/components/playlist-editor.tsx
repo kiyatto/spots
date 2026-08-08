@@ -8,7 +8,13 @@ import {
   renamePlaylistAction,
   savePlaylistEditsAction,
   searchTracksAction,
+  updatePlaylistDescriptionAction,
 } from "@/lib/actions";
+import {
+  averageTrackFeatures,
+  formatStatValue,
+  PLAYLIST_STAT_ROWS,
+} from "@/lib/audio-features";
 import { formatDuration } from "@/lib/format";
 import type {
   AnnotatedPlaylist,
@@ -65,6 +71,45 @@ function TrashIcon({ className }: { className?: string }) {
       <path d="M10 11v6" />
       <path d="M14 11v6" />
     </svg>
+  );
+}
+
+function DescriptionEditor({
+  playlistId,
+  description,
+}: {
+  playlistId: string;
+  description: string;
+}) {
+  const [value, setValue] = useState(description);
+  const [pending, startTransition] = useTransition();
+
+  useEffect(() => {
+    setValue(description);
+  }, [description]);
+
+  function save() {
+    const next = value.trim();
+    if (next === description.trim()) {
+      setValue(description);
+      return;
+    }
+    startTransition(async () => {
+      const saved = await updatePlaylistDescriptionAction(playlistId, next);
+      setValue(saved);
+    });
+  }
+
+  return (
+    <textarea
+      value={value}
+      disabled={pending}
+      rows={3}
+      placeholder="add a description…"
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={save}
+      className="w-full resize-none bg-transparent text-center font-mono text-[13px] text-white/70 placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-[#1ed760] lg:text-left lg:text-[14px]"
+    />
   );
 }
 
@@ -259,11 +304,11 @@ function TrackRow({
 
   return (
     <div
-      className={`group grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] gap-4 px-2 py-3 ${
+      className={`group flex flex-col gap-2 px-2 py-3 lg:grid lg:grid-cols-[minmax(0,2.2fr)_minmax(0,0.8fr)] lg:gap-4 ${
         faded ? "opacity-40" : ""
       }`}
     >
-      <div className="relative grid grid-cols-[32px_50px_minmax(0,1fr)_minmax(0,1fr)_56px] items-center gap-3 rounded bg-[#1c1c1c] px-4 py-2.5">
+      <div className="relative grid min-h-[88px] grid-cols-[32px_50px_minmax(0,1fr)_56px] items-center gap-3 rounded bg-[#1c1c1c] px-4 py-2.5 sm:grid-cols-[32px_50px_minmax(0,1fr)_minmax(0,1fr)_56px] lg:min-h-[104px]">
         <span className="font-mono text-[16px] text-white">{index + 1}</span>
         <div className="relative size-[50px] overflow-hidden rounded-[6px] bg-black/40">
           <Image
@@ -291,7 +336,7 @@ function TrackRow({
                 : ""}
           </p>
         </div>
-        <p className="truncate font-mono text-[16px] text-white/80">
+        <p className="hidden truncate font-mono text-[16px] text-white/80 sm:block">
           {note.albumName}
         </p>
         <p className="font-mono text-[16px] text-white/80">
@@ -312,17 +357,17 @@ function TrackRow({
           </button>
         ) : null}
       </div>
-      <div className="flex flex-col justify-center">
+      <div className="flex min-h-[88px] flex-col justify-center px-1 lg:min-h-[104px] lg:px-0">
         {editable ? (
           <textarea
             value={note.note}
-            rows={2}
+            rows={4}
             placeholder="write a note…"
             onChange={(e) => onNoteChange(note.key, e.target.value)}
-            className="w-full resize-none bg-transparent font-mono text-[16px] text-white placeholder:text-white/30 focus:outline-none"
+            className="h-full min-h-[5.5rem] w-full resize-none bg-transparent font-mono text-[16px] leading-snug text-white placeholder:text-white/30 focus:outline-none"
           />
         ) : (
-          <p className="font-mono text-[16px] text-white">
+          <p className="line-clamp-4 font-mono text-[16px] leading-snug text-white whitespace-pre-wrap">
             {note.note || "—"}
           </p>
         )}
@@ -371,6 +416,18 @@ export function PlaylistEditor({
       return n.note !== b.note || n.status !== b.status;
     });
   }, [draft, baseline, pendingAdds]);
+
+  const visibleNotes = useMemo(() => {
+    if (editable) return draft;
+    return draft.filter((n) => n.status === "active" && !n.markedForRemoval);
+  }, [draft, editable]);
+
+  const playlistStats = useMemo(() => {
+    const ids = draft
+      .filter((n) => n.status === "active" && !n.markedForRemoval)
+      .map((n) => n.spotifyTrackId);
+    return averageTrackFeatures(ids);
+  }, [draft]);
 
   const existingTrackIds = useMemo(
     () =>
@@ -560,31 +617,75 @@ export function PlaylistEditor({
               open in Spotify
             </a>
           </div>
-        ) : null}
+        ) : (
+          <a
+            href="#"
+            onClick={(e) => e.preventDefault()}
+            className="rounded-lg bg-white/10 px-4 py-2 text-center font-mono text-sm text-white hover:bg-white/20"
+          >
+            open in Spotify
+          </a>
+        )}
       </div>
 
       <div className="flex flex-col gap-10 lg:flex-row lg:gap-8">
-        <aside className="flex w-full shrink-0 flex-col gap-8 lg:w-[220px]">
-          <div className="flex flex-col items-center gap-2.5">
-            <div className="relative size-[200px] overflow-hidden bg-[#1c1c1c]">
-              <Image
-                src={playlist.coverImageUrl || "/assets/mascot.png"}
-                alt={playlist.title}
-                fill
-                className="object-cover"
-                sizes="200px"
-                unoptimized
-              />
+        <aside className="flex w-full shrink-0 flex-col items-center gap-8 lg:w-[220px] lg:items-stretch lg:gap-20">
+          <div className="flex w-full flex-col items-center gap-6 md:flex-row md:items-start md:justify-center md:gap-4 lg:flex-col lg:items-stretch lg:gap-20">
+            <div className="flex w-full max-w-[220px] flex-col items-center gap-2 md:w-auto md:max-w-[180px] lg:w-full lg:max-w-none">
+              <div className="relative size-[120px] shrink-0 overflow-hidden bg-[#1c1c1c] sm:size-[140px] lg:size-[200px]">
+                <Image
+                  src={playlist.coverImageUrl || "/assets/mascot.png"}
+                  alt={playlist.title}
+                  fill
+                  className="object-cover"
+                  sizes="(max-width: 1023px) 140px, 200px"
+                  unoptimized
+                />
+              </div>
+              {editable ? (
+                <TitleEditor playlistId={playlist.id} title={playlist.title} />
+              ) : (
+                <p className="font-mono text-[16px] text-white lg:text-[18px]">
+                  {playlist.title}
+                </p>
+              )}
+              <p className="font-mono text-[12px] text-white/40 lg:text-[13px]">
+                created by {playlist.creatorName || "spots user"}
+              </p>
+              {editable ? (
+                <DescriptionEditor
+                  playlistId={playlist.id}
+                  description={playlist.description ?? ""}
+                />
+              ) : playlist.description ? (
+                <p className="w-full text-center font-mono text-[13px] text-white/70 lg:text-left lg:text-[14px]">
+                  {playlist.description}
+                </p>
+              ) : null}
             </div>
-            {editable ? (
-              <TitleEditor playlistId={playlist.id} title={playlist.title} />
-            ) : (
-              <p className="font-mono text-[18px] text-white">{playlist.title}</p>
-            )}
+
+            {playlistStats ? (
+              <dl className="grid w-fit shrink-0 grid-cols-[auto_auto] gap-x-4 gap-y-1.5 opacity-[0.68] md:gap-x-3 md:gap-y-1.5 lg:gap-x-[30px] lg:gap-y-[30px]">
+                {PLAYLIST_STAT_ROWS.map((row) => (
+                  <div key={row.key} className="contents">
+                    <dt className="font-mono text-[12px] text-white sm:text-[13px] lg:text-[18px]">
+                      {row.label}
+                    </dt>
+                    <dd className="text-right font-mono text-[12px] text-white sm:text-[13px] lg:text-left lg:text-[18px]">
+                      {formatStatValue(
+                        playlistStats[row.key],
+                        row.scale,
+                        row.digits,
+                      )}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            ) : null}
           </div>
 
           {editable ? (
-            <div className="flex flex-col gap-3 font-mono text-sm text-white/70">
+            <div className="mt-4 flex w-full max-w-md flex-col gap-3 font-mono text-sm text-white/70 md:mt-6 lg:hidden">
               <SearchAdd
                 disabled={pending}
                 existingTrackIds={existingTrackIds}
@@ -598,21 +699,35 @@ export function PlaylistEditor({
         </aside>
 
         <div className="min-w-0 flex-1">
-          <div className="mb-2 grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] gap-4 px-2">
-            <div className="grid grid-cols-[32px_50px_minmax(0,1fr)_minmax(0,1fr)_56px] gap-3 px-4 font-mono text-[16px] text-white/60">
+          {editable ? (
+            <div className="mb-6 hidden flex-col gap-3 px-2 font-mono text-sm text-white/70 lg:flex">
+              <SearchAdd
+                disabled={pending}
+                existingTrackIds={existingTrackIds}
+                onAdd={handleAdd}
+              />
+              {error ? (
+                <p className="font-mono text-xs text-red-400">{error}</p>
+              ) : null}
+            </div>
+          ) : null}
+          <div className="mb-2 grid grid-cols-1 gap-4 px-2 lg:grid-cols-[minmax(0,2.2fr)_minmax(0,0.8fr)]">
+            <div className="grid grid-cols-[32px_50px_minmax(0,1fr)_56px] gap-3 px-4 font-mono text-[16px] text-white/60 sm:grid-cols-[32px_50px_minmax(0,1fr)_minmax(0,1fr)_56px]">
               <span>#</span>
               <span />
               <span>Title</span>
-              <span>Album</span>
+              <span className="hidden sm:block">Album</span>
               <span>Time</span>
             </div>
-            <div className="font-mono text-[16px] text-white/60">Notes</div>
+            <div className="hidden font-mono text-[16px] text-white/60 lg:block">
+              Notes
+            </div>
           </div>
           <div className="flex flex-col">
-            {draft.length === 0 ? (
+            {visibleNotes.length === 0 ? (
               <p className="px-2 font-mono text-white/40">no tracks yet</p>
             ) : (
-              draft.map((note, index) => (
+              visibleNotes.map((note, index) => (
                 <TrackRow
                   key={note.key}
                   note={note}

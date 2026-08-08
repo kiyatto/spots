@@ -27,7 +27,15 @@ async function readStore(): Promise<DataStore> {
   await ensureStore();
   const raw = await fs.readFile(STORE_PATH, "utf8");
   try {
-    return JSON.parse(raw) as DataStore;
+    const store = JSON.parse(raw) as DataStore;
+    store.playlists = (store.playlists ?? []).map((p) => ({
+      ...p,
+      description: p.description ?? "",
+      creatorName:
+        p.creatorName ??
+        (p.userId === "demo-user" ? "Demo" : "spots user"),
+    }));
+    return store;
   } catch {
     return emptyStore();
   }
@@ -65,6 +73,7 @@ export async function createAnnotatedPlaylist(input: {
   userId: string;
   spotifyPlaylistId: string;
   title: string;
+  creatorName?: string | null;
   coverImageUrl?: string | null;
   notes?: Omit<
     TrackNote,
@@ -79,6 +88,10 @@ export async function createAnnotatedPlaylist(input: {
     userId: input.userId,
     spotifyPlaylistId: input.spotifyPlaylistId,
     title: input.title,
+    description: "",
+    creatorName:
+      input.creatorName?.trim() ||
+      (input.userId === "demo-user" ? "Demo" : "spots user"),
     shareSlug: nanoid(12),
     coverImageUrl: input.coverImageUrl ?? null,
     lastSyncedAt: null,
@@ -119,6 +132,19 @@ export async function updatePlaylistTitle(
     throw new Error("Not found or unauthorized");
   }
   playlist.title = title;
+  return savePlaylist(playlist);
+}
+
+export async function updatePlaylistDescription(
+  playlistId: string,
+  userId: string,
+  description: string,
+): Promise<AnnotatedPlaylist> {
+  const playlist = await getPlaylistById(playlistId);
+  if (!playlist || playlist.userId !== userId) {
+    throw new Error("Not found or unauthorized");
+  }
+  playlist.description = description;
   return savePlaylist(playlist);
 }
 
