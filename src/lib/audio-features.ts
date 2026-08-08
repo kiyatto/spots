@@ -61,7 +61,8 @@ function hashString(input: string): number {
 
 /** Deterministic 0–1 feature when a track has no explicit mock data. */
 function syntheticFeatures(trackId: string): TrackAudioFeatures {
-  const unit = (salt: string) => (hashString(`${trackId}:${salt}`) % 1000) / 1000;
+  const unit = (salt: string) =>
+    (hashString(`${trackId}:${salt}`) % 1000) / 1000;
   return {
     acousticness: unit("acousticness"),
     energy: unit("energy"),
@@ -77,10 +78,10 @@ export function getTrackFeatures(trackId: string): TrackAudioFeatures {
   return MOCK_FEATURES[trackId] ?? syntheticFeatures(trackId);
 }
 
-export function averageTrackFeatures(
-  trackIds: string[],
+export function averageFeatures(
+  features: TrackAudioFeatures[],
 ): PlaylistAudioStats | null {
-  if (trackIds.length === 0) return null;
+  if (features.length === 0) return null;
 
   const totals: TrackAudioFeatures = {
     acousticness: 0,
@@ -92,8 +93,7 @@ export function averageTrackFeatures(
     tempo: 0,
   };
 
-  for (const id of trackIds) {
-    const f = getTrackFeatures(id);
+  for (const f of features) {
     totals.acousticness += f.acousticness;
     totals.energy += f.energy;
     totals.mode += f.mode;
@@ -103,7 +103,7 @@ export function averageTrackFeatures(
     totals.tempo += f.tempo;
   }
 
-  const n = trackIds.length;
+  const n = features.length;
   return {
     acousticness: totals.acousticness / n,
     energy: totals.energy / n,
@@ -113,6 +113,13 @@ export function averageTrackFeatures(
     loudness: totals.loudness / n,
     tempo: totals.tempo / n,
   };
+}
+
+export function averageTrackFeatures(
+  trackIds: string[],
+): PlaylistAudioStats | null {
+  if (trackIds.length === 0) return null;
+  return averageFeatures(trackIds.map(getTrackFeatures));
 }
 
 export const PLAYLIST_STAT_ROWS = [
@@ -137,3 +144,6 @@ export function formatStatValue(
 ): string {
   return (value * scale).toFixed(digits);
 }
+
+export const AUDIO_FEATURES_UNAVAILABLE_MESSAGE =
+  "Cannot display audio features for this playlist.";

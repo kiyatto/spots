@@ -15,8 +15,13 @@ import {
   updatePlaylistTitle,
 } from "./store";
 import {
+  averageFeatures,
+  averageTrackFeatures,
+} from "./audio-features";
+import {
   addTracksToPlaylist,
   createPlaylist,
+  getTracksAudioFeatures,
   listUserPlaylists,
   removeTracksFromPlaylist,
   searchTracks,
@@ -25,6 +30,7 @@ import {
   isDemoToken,
   mockAddTracks,
   mockCreatePlaylist,
+  mockGetPlaylistImageUrl,
   mockGetPlaylistItems,
   mockListPlaylists,
   mockRemoveTracks,
@@ -48,6 +54,56 @@ async function accessToken() {
     throw new Error("Spotify session expired. Sign in again.");
   }
   return { session, token: session.accessToken };
+}
+
+function activeTrackIds(playlist: AnnotatedPlaylist) {
+  return playlist.notes
+    .filter((n) => n.status === "active")
+    .map((n) => n.spotifyTrackId);
+}
+
+async function withAudioStats(
+  playlist: AnnotatedPlaylist,
+  token: string,
+): Promise<AnnotatedPlaylist> {
+  const ids = activeTrackIds(playlist);
+  if (ids.length === 0) {
+    return savePlaylist({
+      ...playlist,
+      audioStats: null,
+      audioStatsUnavailable: false,
+    });
+  }
+
+  if (isDemoToken(token)) {
+    return savePlaylist({
+      ...playlist,
+      audioStats: averageTrackFeatures(ids),
+      audioStatsUnavailable: false,
+    });
+  }
+
+  try {
+    const features = await getTracksAudioFeatures(token, ids);
+    if (features.length === 0) {
+      return savePlaylist({
+        ...playlist,
+        audioStats: null,
+        audioStatsUnavailable: true,
+      });
+    }
+    return savePlaylist({
+      ...playlist,
+      audioStats: averageFeatures(features),
+      audioStatsUnavailable: false,
+    });
+  } catch {
+    return savePlaylist({
+      ...playlist,
+      audioStats: null,
+      audioStatsUnavailable: true,
+    });
+  }
 }
 
 async function syncWithMock(playlistId: string): Promise<AnnotatedPlaylist> {
@@ -87,11 +143,15 @@ async function syncWithMock(playlistId: string): Promise<AnnotatedPlaylist> {
     }
   }
 
+  const playlistImageUrl = await mockGetPlaylistImageUrl(
+    playlist.spotifyPlaylistId,
+  );
+
   return savePlaylist({
     ...playlist,
     notes,
     lastSyncedAt: new Date().toISOString(),
-    coverImageUrl: tracks[0]?.albumImageUrl ?? playlist.coverImageUrl,
+    coverImageUrl: playlistImageUrl ?? playlist.coverImageUrl,
   });
 }
 
@@ -297,10 +357,12 @@ export async function savePlaylistEditsAction(input: PlaylistEditSaveInput) {
     }
   }
 
+  const withStats = await withAudioStats(saved, token);
+
   revalidatePath(`/playlists/${input.playlistId}`);
   revalidatePath("/dashboard");
-  revalidatePath(`/p/${saved.shareSlug}`);
-  return saved;
+  revalidatePath(`/p/${withStats.shareSlug}`);
+  return withStats;
 }
 
 export async function loadOwnerPlaylist(playlistId: string) {
@@ -311,8 +373,13 @@ export async function loadOwnerPlaylist(playlistId: string) {
   }
 
   try {
-    return await syncOne(playlist, token);
+    const synced = await syncOne(playlist, token);
+    return await withAudioStats(synced, token);
   } catch {
-    return playlist;
+    try {
+      return await withAudioStats(playlist, token);
+    } catch {
+      return playlist;
+    }
   }
 }

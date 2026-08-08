@@ -10,9 +10,11 @@ import type { AnnotatedPlaylist, SpotifyPlaylistSummary } from "@/lib/types";
 export function PlaylistGrid({
   annotated,
   spotify,
+  spotifyError = null,
 }: {
   annotated: AnnotatedPlaylist[];
   spotify: SpotifyPlaylistSummary[];
+  spotifyError?: string | null;
 }) {
   const [pending, startTransition] = useTransition();
   const [draft, setDraft] = useState<SpotifyPlaylistSummary | null>(null);
@@ -85,31 +87,39 @@ export function PlaylistGrid({
         <p className="font-mono text-sm text-white/50">
           Click on a playlist to create a new annotated copy.
         </p>
-        <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4">
-          {spotify.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              disabled={pending || draft !== null}
-              onClick={() => openImport(p)}
-              className="group flex flex-col gap-2 text-left disabled:opacity-50"
-            >
-              <div className="relative aspect-square w-full max-w-[200px] overflow-hidden bg-[#1c1c1c] transition group-hover:opacity-90">
-                <Image
-                  src={p.imageUrl || "/assets/mascot.png"}
-                  alt={p.name}
-                  fill
-                  className="object-cover"
-                  sizes="200px"
-                  unoptimized
-                />
-              </div>
-              <span className="font-mono text-sm text-white/80 group-hover:text-white">
-                {p.name}
-              </span>
-            </button>
-          ))}
-        </div>
+        {spotifyError ? (
+          <p className="font-mono text-sm text-red-400">{spotifyError}</p>
+        ) : spotify.length === 0 ? (
+          <p className="font-mono text-sm text-white/50">
+            No Spotify playlists found for this account.
+          </p>
+        ) : (
+          <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4">
+            {spotify.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                disabled={pending || draft !== null}
+                onClick={() => openImport(p)}
+                className="group flex flex-col gap-2 text-left disabled:opacity-50"
+              >
+                <div className="relative aspect-square w-full max-w-[200px] overflow-hidden bg-[#1c1c1c] transition group-hover:opacity-90">
+                  <Image
+                    src={p.imageUrl || "/assets/mascot.png"}
+                    alt={p.name}
+                    fill
+                    className="object-cover"
+                    sizes="200px"
+                    unoptimized
+                  />
+                </div>
+                <span className="font-mono text-sm text-white/80 group-hover:text-white">
+                  {p.name}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
       </section>
 
       {draft ? (

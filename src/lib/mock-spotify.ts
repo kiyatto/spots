@@ -69,6 +69,12 @@ export async function mockGetPlaylistItems(
   return [...(playlistTracks.get(playlistId) ?? [])];
 }
 
+export async function mockGetPlaylistImageUrl(
+  playlistId: string,
+): Promise<string | null> {
+  return mockPlaylists.find((p) => p.id === playlistId)?.imageUrl ?? null;
+}
+
 export async function mockCreatePlaylist(
   name: string,
 ): Promise<{ id: string; name: string; images: { url: string }[] }> {

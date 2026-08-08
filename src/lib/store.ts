@@ -34,6 +34,8 @@ async function readStore(): Promise<DataStore> {
       creatorName:
         p.creatorName ??
         (p.userId === "demo-user" ? "Demo" : "spots user"),
+      audioStats: p.audioStats ?? null,
+      audioStatsUnavailable: p.audioStatsUnavailable ?? false,
     }));
     return store;
   } catch {
@@ -96,6 +98,8 @@ export async function createAnnotatedPlaylist(input: {
     coverImageUrl: input.coverImageUrl ?? null,
     lastSyncedAt: null,
     createdAt: now,
+    audioStats: null,
+    audioStatsUnavailable: false,
     notes: (input.notes ?? []).map((note, index) => ({
       ...note,
       id: nanoid(),

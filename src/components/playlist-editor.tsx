@@ -11,9 +11,10 @@ import {
   updatePlaylistDescriptionAction,
 } from "@/lib/actions";
 import {
-  averageTrackFeatures,
+  AUDIO_FEATURES_UNAVAILABLE_MESSAGE,
   formatStatValue,
   PLAYLIST_STAT_ROWS,
+  type PlaylistAudioStats,
 } from "@/lib/audio-features";
 import { formatDuration } from "@/lib/format";
 import type {
@@ -22,6 +23,10 @@ import type {
   TrackNote,
   TrackNoteStatus,
 } from "@/lib/types";
+
+function openSpotifyPlaylistUrl(spotifyPlaylistId: string) {
+  return `https://open.spotify.com/playlist/${spotifyPlaylistId}`;
+}
 
 type DraftNote = {
   key: string;
@@ -392,7 +397,14 @@ export function PlaylistEditor({
   const [pending, startTransition] = useTransition();
   const [copied, setCopied] = useState(false);
   const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
+  const [audioStats, setAudioStats] = useState<PlaylistAudioStats | null>(
+    () => playlist.audioStats ?? null,
+  );
+  const [audioStatsUnavailable, setAudioStatsUnavailable] = useState(
+    () => playlist.audioStatsUnavailable ?? false,
+  );
   const sharePath = `/p/${playlist.shareSlug}`;
+  const spotifyUrl = openSpotifyPlaylistUrl(playlist.spotifyPlaylistId);
   const router = useRouter();
 
   useEffect(() => {
@@ -401,9 +413,11 @@ export function PlaylistEditor({
     setBaseline(next);
     setPendingAdds([]);
     setError(null);
+    setAudioStats(playlist.audioStats ?? null);
+    setAudioStatsUnavailable(playlist.audioStatsUnavailable ?? false);
     // Reset when the saved playlist identity/content refreshes from the server
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playlist.id, playlist.lastSyncedAt, JSON.stringify(playlist.notes)]);
+  }, [playlist.id, playlist.lastSyncedAt, JSON.stringify(playlist.notes), playlist.audioStats, playlist.audioStatsUnavailable]);
 
   const dirty = useMemo(() => {
     if (pendingAdds.length > 0) return true;
@@ -421,13 +435,6 @@ export function PlaylistEditor({
     if (editable) return draft;
     return draft.filter((n) => n.status === "active" && !n.markedForRemoval);
   }, [draft, editable]);
-
-  const playlistStats = useMemo(() => {
-    const ids = draft
-      .filter((n) => n.status === "active" && !n.markedForRemoval)
-      .map((n) => n.spotifyTrackId);
-    return averageTrackFeatures(ids);
-  }, [draft]);
 
   const existingTrackIds = useMemo(
     () =>
@@ -554,6 +561,8 @@ export function PlaylistEditor({
         setDraft(next);
         setBaseline(next);
         setPendingAdds([]);
+        setAudioStats(saved.audioStats ?? null);
+        setAudioStatsUnavailable(saved.audioStatsUnavailable ?? false);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Save failed");
       }
@@ -610,8 +619,9 @@ export function PlaylistEditor({
               {copied ? "link copied" : "copy share link"}
             </button>
             <a
-              href="#"
-              onClick={(e) => e.preventDefault()}
+              href={spotifyUrl}
+              target="_blank"
+              rel="noopener noreferrer"
               className="rounded-lg bg-white/10 px-4 py-2 text-center font-mono text-sm text-white hover:bg-white/20"
             >
               open in Spotify
@@ -619,8 +629,9 @@ export function PlaylistEditor({
           </div>
         ) : (
           <a
-            href="#"
-            onClick={(e) => e.preventDefault()}
+            href={spotifyUrl}
+            target="_blank"
+            rel="noopener noreferrer"
             className="rounded-lg bg-white/10 px-4 py-2 text-center font-mono text-sm text-white hover:bg-white/20"
           >
             open in Spotify
@@ -664,7 +675,11 @@ export function PlaylistEditor({
               ) : null}
             </div>
 
-            {playlistStats ? (
+            {audioStatsUnavailable ? (
+              <p className="max-w-[220px] text-center font-mono text-[12px] text-white/50 lg:text-left lg:text-[14px]">
+                {AUDIO_FEATURES_UNAVAILABLE_MESSAGE}
+              </p>
+            ) : audioStats ? (
               <dl className="grid w-fit shrink-0 grid-cols-[auto_auto] gap-x-4 gap-y-1.5 opacity-[0.68] md:gap-x-3 md:gap-y-1.5 lg:gap-x-[30px] lg:gap-y-[30px]">
                 {PLAYLIST_STAT_ROWS.map((row) => (
                   <div key={row.key} className="contents">
@@ -673,7 +688,7 @@ export function PlaylistEditor({
                     </dt>
                     <dd className="text-right font-mono text-[12px] text-white sm:text-[13px] lg:text-left lg:text-[18px]">
                       {formatStatValue(
-                        playlistStats[row.key],
+                        audioStats[row.key],
                         row.scale,
                         row.digits,
                       )}

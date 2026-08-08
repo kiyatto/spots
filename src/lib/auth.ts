@@ -1,6 +1,8 @@
-import NextAuth from "next-auth";
+import NextAuth, { type NextAuthConfig } from "next-auth";
+import { Auth } from "@auth/core";
 import Spotify from "next-auth/providers/spotify";
 import Credentials from "next-auth/providers/credentials";
+import type { NextRequest } from "next/server";
 import { refreshAccessToken } from "./spotify";
 
 const SPOTIFY_SCOPES = [
@@ -38,13 +40,17 @@ declare module "@auth/core/jwt" {
   }
 }
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+export const authConfig = {
+  secret: process.env.AUTH_SECRET,
+  trustHost: true,
   providers: [
     ...(process.env.AUTH_SPOTIFY_ID && process.env.AUTH_SPOTIFY_SECRET
       ? [
           Spotify({
             clientId: process.env.AUTH_SPOTIFY_ID,
             clientSecret: process.env.AUTH_SPOTIFY_SECRET,
+            // Keep explicit authorize URL — `{ params }` alone replaces the
+            // provider string and falls back to authjs.dev (Invalid URL).
             authorization: {
               url: "https://accounts.spotify.com/authorize",
               params: { scope: SPOTIFY_SCOPES },
@@ -133,8 +139,41 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return session;
     },
   },
-  trustHost: true,
-});
+} satisfies NextAuthConfig;
+
+export const { auth, signIn, signOut } = NextAuth(authConfig);
+
+/**
+ * Next.js 16 rewrites 127.0.0.1 → localhost on NextRequest.url, and
+ * Auth.js reqWithEnvURL clones via NextRequest so AUTH_URL never sticks.
+ * Pass a plain Request with the AUTH_URL origin so Spotify redirect_uri matches.
+ */
+export async function handleAuthRequest(req: NextRequest) {
+  const authUrl = process.env.AUTH_URL ?? process.env.NEXTAUTH_URL;
+  const target =
+    authUrl != null
+      ? req.nextUrl.href.replace(req.nextUrl.origin, new URL(authUrl).origin)
+      : req.url;
+
+  const headers = new Headers(req.headers);
+  if (authUrl) {
+    const parsed = new URL(authUrl);
+    headers.set("host", parsed.host);
+    headers.set("x-forwarded-host", parsed.host);
+    headers.set("x-forwarded-proto", parsed.protocol.replace(":", ""));
+  }
+
+  const init: RequestInit & { duplex?: "half" } = {
+    method: req.method,
+    headers,
+  };
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    init.body = req.body;
+    init.duplex = "half";
+  }
+
+  return Auth(new Request(target, init), authConfig);
+}
 
 export async function requireSession() {
   const session = await auth();

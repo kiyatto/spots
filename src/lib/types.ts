@@ -1,3 +1,5 @@
+import type { PlaylistAudioStats } from "./audio-features";
+
 export type TrackNoteStatus = "active" | "removed_from_spotify";
 
 export type TrackNote = {
@@ -27,6 +29,10 @@ export type AnnotatedPlaylist = {
   lastSyncedAt: string | null;
   createdAt: string;
   notes: TrackNote[];
+  /** Averaged audio features (0–1 scale). Null when unknown or unavailable. */
+  audioStats: PlaylistAudioStats | null;
+  /** True when the last Spotify audio-features fetch failed. */
+  audioStatsUnavailable: boolean;
 };
 
 export type DataStore = {

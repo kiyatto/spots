@@ -1,7 +1,7 @@
 import { nanoid } from "nanoid";
 import type { AnnotatedPlaylist, SpotifyTrack, TrackNote } from "./types";
 import { savePlaylist } from "./store";
-import { getPlaylistItems } from "./spotify";
+import { getPlaylistImageUrl, getPlaylistItems } from "./spotify";
 
 function toNote(
   playlistId: string,
@@ -30,10 +30,12 @@ export async function syncPlaylistFromSpotify(
   playlist: AnnotatedPlaylist,
   accessToken: string,
 ): Promise<AnnotatedPlaylist> {
-  const spotifyTracks = await getPlaylistItems(
-    accessToken,
-    playlist.spotifyPlaylistId,
-  );
+  const [spotifyTracks, playlistImageUrl] = await Promise.all([
+    getPlaylistItems(accessToken, playlist.spotifyPlaylistId),
+    getPlaylistImageUrl(accessToken, playlist.spotifyPlaylistId).catch(
+      () => null,
+    ),
+  ]);
   const byId = new Map(playlist.notes.map((n) => [n.spotifyTrackId, n]));
   const seen = new Set<string>();
   const nextNotes: TrackNote[] = [];
@@ -59,9 +61,7 @@ export async function syncPlaylistFromSpotify(
     ...playlist,
     notes: nextNotes,
     lastSyncedAt: new Date().toISOString(),
-    coverImageUrl:
-      spotifyTracks.find((t) => t.albumImageUrl)?.albumImageUrl ??
-      playlist.coverImageUrl,
+    coverImageUrl: playlistImageUrl ?? playlist.coverImageUrl,
   };
 
   return savePlaylist(updated);

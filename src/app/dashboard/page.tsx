@@ -8,14 +8,23 @@ import {
   getSpotifyPlaylistsAction,
 } from "@/lib/actions";
 
+export const dynamic = "force-dynamic";
+
 export default async function DashboardPage() {
   const session = await auth();
   if (!session?.user) redirect("/");
 
-  const [annotated, spotify] = await Promise.all([
-    getMyAnnotatedPlaylists(),
-    getSpotifyPlaylistsAction().catch(() => []),
-  ]);
+  const annotated = await getMyAnnotatedPlaylists();
+
+  let spotify: Awaited<ReturnType<typeof getSpotifyPlaylistsAction>> = [];
+  let spotifyError: string | null = null;
+  try {
+    spotify = await getSpotifyPlaylistsAction();
+  } catch (error) {
+    spotifyError =
+      error instanceof Error ? error.message : "Failed to load Spotify playlists";
+    console.error("[dashboard] Spotify playlist fetch failed:", error);
+  }
 
   return (
     <main className="flex min-h-screen flex-col gap-20 p-10">
@@ -23,7 +32,11 @@ export default async function DashboardPage() {
         <BrandMark />
         <SignOutButton />
       </header>
-      <PlaylistGrid annotated={annotated} spotify={spotify} />
+      <PlaylistGrid
+        annotated={annotated}
+        spotify={spotify}
+        spotifyError={spotifyError}
+      />
     </main>
   );
 }
