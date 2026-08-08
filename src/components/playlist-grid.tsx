@@ -38,18 +38,18 @@ export function PlaylistGrid({
       <section className="flex flex-col gap-6">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <h1 className="font-mono text-[22px] uppercase text-white">
-            your spots
+            Annotated Playlists
           </h1>
           <Link
             href="/playlists/new"
             className="font-mono text-[14px] text-[#1ed760] hover:underline"
           >
-            + create playlist
+            + New Playlist
           </Link>
         </div>
         {annotated.length === 0 ? (
           <p className="font-mono text-white/50">
-            no annotated playlists yet — import one below or create new
+            No annotated playlists yet. Pick an existing playlist from Spotify below or create a new one!
           </p>
         ) : (
           <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4">
@@ -80,10 +80,10 @@ export function PlaylistGrid({
 
       <section className="flex flex-col gap-6">
         <h2 className="font-mono text-[22px] uppercase text-white">
-          spotify playlists
+          all playlists
         </h2>
         <p className="font-mono text-sm text-white/50">
-          pick a playlist to create a new annotated copy (you can make multiple)
+          Click on a playlist to create a new annotated copy.
         </p>
         <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4">
           {spotify.map((p) => (

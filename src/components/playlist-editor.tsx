@@ -1,12 +1,13 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   renamePlaylistAction,
   savePlaylistEditsAction,
   searchTracksAction,
-  syncPlaylistAction,
 } from "@/lib/actions";
 import { formatDuration } from "@/lib/format";
 import type {
@@ -162,9 +163,21 @@ function SearchAdd({
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SpotifyTrack[]>([]);
   const [pending, startTransition] = useTransition();
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (results.length === 0) return;
+    function onPointerDown(event: PointerEvent) {
+      const root = rootRef.current;
+      if (!root || root.contains(event.target as Node)) return;
+      setResults([]);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [results.length]);
 
   return (
-    <div className="flex w-full flex-col gap-3">
+    <div ref={rootRef} className="flex w-full flex-col gap-3">
       <form
         className="flex gap-2"
         onSubmit={(e) => {
@@ -179,7 +192,7 @@ function SearchAdd({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           disabled={disabled}
-          placeholder="search tracks…"
+          placeholder="search for tracks to add…"
           className="flex-1 rounded border border-white/10 bg-[#1c1c1c] px-3 py-2 font-mono text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-[#1ed760] disabled:opacity-50"
         />
         <button
@@ -333,7 +346,9 @@ export function PlaylistEditor({
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [copied, setCopied] = useState(false);
+  const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
   const sharePath = `/p/${playlist.shareSlug}`;
+  const router = useRouter();
 
   useEffect(() => {
     const next = cloneDraft(playlist.notes);
@@ -366,11 +381,41 @@ export function PlaylistEditor({
   );
 
   function handleCancel() {
+    if (
+      dirty &&
+      !window.confirm("Discard unsaved changes?")
+    ) {
+      return;
+    }
     setDraft(cloneDraft(playlist.notes));
     setBaseline(cloneDraft(playlist.notes));
     setPendingAdds([]);
     setError(null);
   }
+
+  function handleBack() {
+    if (dirty) {
+      setLeaveConfirmOpen(true);
+      return;
+    }
+    router.push("/dashboard");
+  }
+
+  function confirmLeave() {
+    setLeaveConfirmOpen(false);
+    router.push("/dashboard");
+  }
+
+  useEffect(() => {
+    if (!editable) return;
+    function onBeforeUnload(event: BeforeUnloadEvent) {
+      if (!dirty) return;
+      event.preventDefault();
+      event.returnValue = "";
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty, editable]);
 
   function handleAdd(track: SpotifyTrack) {
     if (existingTrackIds.has(track.id)) return;
@@ -442,12 +487,15 @@ export function PlaylistEditor({
     setError(null);
     startTransition(async () => {
       try {
-        await savePlaylistEditsAction({
+        const saved = await savePlaylistEditsAction({
           playlistId: playlist.id,
           notes: finalNotes,
           addTracks: pendingAdds,
           removeSpotifyTrackIds: removeIds,
         });
+        const next = cloneDraft(saved.notes);
+        setDraft(next);
+        setBaseline(next);
         setPendingAdds([]);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Save failed");
@@ -456,45 +504,42 @@ export function PlaylistEditor({
   }
 
   return (
-    <div className="relative flex min-h-full flex-col gap-10 pb-24 lg:flex-row lg:gap-8">
-      <aside className="flex w-full shrink-0 flex-col gap-8 lg:w-[220px]">
-        <div className="flex flex-col items-center gap-2.5">
-          <div className="relative size-[200px] overflow-hidden bg-[#1c1c1c]">
-            <Image
-              src={playlist.coverImageUrl || "/assets/mascot.png"}
-              alt={playlist.title}
-              fill
-              className="object-cover"
-              sizes="200px"
-              unoptimized
-            />
-          </div>
+    <div
+      className={`relative flex min-h-full flex-col gap-8 ${
+        editable && dirty ? "pb-24" : ""
+      }`}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-3">
           {editable ? (
-            <TitleEditor playlistId={playlist.id} title={playlist.title} />
+            <button
+              type="button"
+              onClick={handleBack}
+              className="self-start font-mono text-[18px] text-white tracking-tight hover:opacity-80"
+            >
+              spots
+            </button>
           ) : (
-            <p className="font-mono text-[18px] text-white">{playlist.title}</p>
+            <Link
+              href="/"
+              className="self-start font-mono text-[18px] text-white tracking-tight hover:opacity-80"
+            >
+              spots
+            </Link>
           )}
+          {editable ? (
+            <button
+              type="button"
+              onClick={handleBack}
+              className="self-start font-mono text-sm text-white/50 hover:text-white"
+            >
+              ← back
+            </button>
+          ) : null}
         </div>
 
         {editable ? (
-          <div className="flex flex-col gap-3 font-mono text-sm text-white/70">
-            <button
-              type="button"
-              disabled={pending || dirty}
-              title={
-                dirty
-                  ? "Save or cancel your edits before syncing"
-                  : "Pull latest tracks from Spotify"
-              }
-              onClick={() =>
-                startTransition(() => {
-                  void syncPlaylistAction(playlist.id);
-                })
-              }
-              className="text-left hover:text-white disabled:opacity-40"
-            >
-              sync from spotify
-            </button>
+          <div className="flex flex-col items-stretch gap-2">
             <button
               type="button"
               onClick={async () => {
@@ -503,72 +548,105 @@ export function PlaylistEditor({
                 setCopied(true);
                 setTimeout(() => setCopied(false), 2000);
               }}
-              className="text-left hover:text-white"
+              className="rounded-lg bg-white/10 px-4 py-2 font-mono text-sm text-white hover:bg-white/20"
             >
               {copied ? "link copied" : "copy share link"}
             </button>
-            <SearchAdd
-              disabled={pending}
-              existingTrackIds={existingTrackIds}
-              onAdd={handleAdd}
-            />
-            {error ? (
-              <p className="font-mono text-xs text-red-400">{error}</p>
-            ) : null}
+            <a
+              href="#"
+              onClick={(e) => e.preventDefault()}
+              className="rounded-lg bg-white/10 px-4 py-2 text-center font-mono text-sm text-white hover:bg-white/20"
+            >
+              open in Spotify
+            </a>
           </div>
         ) : null}
-      </aside>
+      </div>
 
-      <div className="min-w-0 flex-1">
-        <div className="mb-2 grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] gap-4 px-2">
-          <div className="grid grid-cols-[32px_50px_minmax(0,1fr)_minmax(0,1fr)_56px] gap-3 px-4 font-mono text-[16px] text-white/60">
-            <span>#</span>
-            <span />
-            <span>Title</span>
-            <span>Album</span>
-            <span>Time</span>
-          </div>
-          <div className="font-mono text-[16px] text-white/60">Notes</div>
-        </div>
-        <div className="flex flex-col">
-          {draft.length === 0 ? (
-            <p className="px-2 font-mono text-white/40">no tracks yet</p>
-          ) : (
-            draft.map((note, index) => (
-              <TrackRow
-                key={note.key}
-                note={note}
-                index={index}
-                editable={editable}
-                onNoteChange={(key, value) =>
-                  setDraft((prev) =>
-                    prev.map((n) =>
-                      n.key === key ? { ...n, note: value } : n,
-                    ),
-                  )
-                }
-                onRemove={handleRemove}
+      <div className="flex flex-col gap-10 lg:flex-row lg:gap-8">
+        <aside className="flex w-full shrink-0 flex-col gap-8 lg:w-[220px]">
+          <div className="flex flex-col items-center gap-2.5">
+            <div className="relative size-[200px] overflow-hidden bg-[#1c1c1c]">
+              <Image
+                src={playlist.coverImageUrl || "/assets/mascot.png"}
+                alt={playlist.title}
+                fill
+                className="object-cover"
+                sizes="200px"
+                unoptimized
               />
-            ))
-          )}
+            </div>
+            {editable ? (
+              <TitleEditor playlistId={playlist.id} title={playlist.title} />
+            ) : (
+              <p className="font-mono text-[18px] text-white">{playlist.title}</p>
+            )}
+          </div>
+
+          {editable ? (
+            <div className="flex flex-col gap-3 font-mono text-sm text-white/70">
+              <SearchAdd
+                disabled={pending}
+                existingTrackIds={existingTrackIds}
+                onAdd={handleAdd}
+              />
+              {error ? (
+                <p className="font-mono text-xs text-red-400">{error}</p>
+              ) : null}
+            </div>
+          ) : null}
+        </aside>
+
+        <div className="min-w-0 flex-1">
+          <div className="mb-2 grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] gap-4 px-2">
+            <div className="grid grid-cols-[32px_50px_minmax(0,1fr)_minmax(0,1fr)_56px] gap-3 px-4 font-mono text-[16px] text-white/60">
+              <span>#</span>
+              <span />
+              <span>Title</span>
+              <span>Album</span>
+              <span>Time</span>
+            </div>
+            <div className="font-mono text-[16px] text-white/60">Notes</div>
+          </div>
+          <div className="flex flex-col">
+            {draft.length === 0 ? (
+              <p className="px-2 font-mono text-white/40">no tracks yet</p>
+            ) : (
+              draft.map((note, index) => (
+                <TrackRow
+                  key={note.key}
+                  note={note}
+                  index={index}
+                  editable={editable}
+                  onNoteChange={(key, value) =>
+                    setDraft((prev) =>
+                      prev.map((n) =>
+                        n.key === key ? { ...n, note: value } : n,
+                      ),
+                    )
+                  }
+                  onRemove={handleRemove}
+                />
+              ))
+            )}
+          </div>
         </div>
       </div>
 
-      {editable ? (
+      {editable && dirty ? (
         <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/10 bg-[#121212]/95 px-6 py-4 backdrop-blur">
           <div className="mx-auto flex max-w-5xl items-center justify-between gap-4">
             <p className="font-mono text-sm text-white/50">
-              {dirty
-                ? pendingAdds.length > 0 ||
-                  draft.some((n) => n.markedForRemoval)
-                  ? "unsaved changes · will update Spotify on save"
-                  : "unsaved changes"
-                : "no unsaved changes"}
+              unsaved changes
+              {pendingAdds.length > 0 ||
+              draft.some((n) => n.markedForRemoval)
+                ? " · will update Spotify on save"
+                : ""}
             </p>
             <div className="flex gap-3">
               <button
                 type="button"
-                disabled={pending || !dirty}
+                disabled={pending}
                 onClick={handleCancel}
                 className="rounded px-4 py-2 font-mono text-sm text-white/60 hover:text-white disabled:opacity-40"
               >
@@ -576,11 +654,50 @@ export function PlaylistEditor({
               </button>
               <button
                 type="button"
-                disabled={pending || !dirty}
+                disabled={pending}
                 onClick={handleSave}
                 className="rounded-lg bg-[#1ed760] px-5 py-2 font-sans text-sm font-semibold text-black hover:brightness-110 disabled:opacity-40"
               >
                 {pending ? "saving…" : "save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {leaveConfirmOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="leave-dialog-title"
+        >
+          <div className="flex w-full max-w-md flex-col gap-6 rounded-lg border border-white/10 bg-[#121212] p-6">
+            <div>
+              <h3
+                id="leave-dialog-title"
+                className="font-mono text-[18px] text-white"
+              >
+                unsaved changes
+              </h3>
+              <p className="mt-2 font-mono text-sm text-white/50">
+                Leave this playlist and discard your edits?
+              </p>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setLeaveConfirmOpen(false)}
+                className="rounded px-4 py-2 font-mono text-sm text-white/60 hover:text-white"
+              >
+                stay
+              </button>
+              <button
+                type="button"
+                onClick={confirmLeave}
+                className="rounded-lg bg-white/10 px-4 py-2 font-sans text-sm font-semibold text-white hover:bg-white/20"
+              >
+                discard
               </button>
             </div>
           </div>

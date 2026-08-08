@@ -1,5 +1,4 @@
 import { notFound, redirect } from "next/navigation";
-import { BrandMark } from "@/components/brand-mark";
 import { PlaylistEditor } from "@/components/playlist-editor";
 import { auth } from "@/lib/auth";
 import { loadOwnerPlaylist } from "@/lib/actions";
@@ -18,7 +17,6 @@ export default async function PlaylistEditorPage({
 
   return (
     <main className="flex min-h-screen flex-col gap-10 p-10">
-      <BrandMark />
       <PlaylistEditor playlist={playlist} editable />
     </main>
   );
