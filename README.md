@@ -1,5 +1,7 @@
 # spots
 
+Note: Spotify API is rate-limited to 5 individuals for individual developers :(
+
 Annotate Spotify playlists, keep multiple note variants per playlist, and share read-only links.
 
 ## Stack
